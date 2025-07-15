@@ -1,5 +1,6 @@
 "use client"
 import { AppProvider, useApp } from "@/contexts/AppContext"
+import Layout from "@/components/Layout"
 import Dashboard from "@/components/Dashboard"
 import Agenda from "@/components/Agenda"
 import Chat from "@/components/Chat"
@@ -44,7 +45,7 @@ function AppContent() {
   return (
     <>
       <ServiceWorkerRegistration />
-      {renderActiveSection()}
+      <Layout>{renderActiveSection()}</Layout>
     </>
   )
 }

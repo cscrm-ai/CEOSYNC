@@ -1,52 +1,56 @@
-const CACHE_NAME = "ceosync-v1"
-const urlsToCache = ["/", "/static/js/bundle.js", "/static/css/main.css", "/manifest.json"]
+// Service Worker para notificações avançadas
+const CACHE_NAME = "ceo-sync-v1"
+const urlsToCache = ["/", "/favicon.ico"]
 
+// Instalar o service worker
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(urlsToCache)))
 })
 
+// Interceptar requisições
 self.addEventListener("fetch", (event) => {
   event.respondWith(
     caches.match(event.request).then((response) => {
-      if (response) {
-        return response
-      }
-      return fetch(event.request)
+      // Retornar cache se disponível, senão buscar na rede
+      return response || fetch(event.request)
     }),
   )
 })
 
-self.addEventListener("push", (event) => {
-  const options = {
-    body: event.data ? event.data.text() : "Nova notificação do CEO SYNC",
-    icon: "/icon-192x192.png",
-    badge: "/icon-192x192.png",
-    vibrate: [100, 50, 100],
-    data: {
-      dateOfArrival: Date.now(),
-      primaryKey: 1,
-    },
-    actions: [
-      {
-        action: "explore",
-        title: "Ver detalhes",
-        icon: "/icon-192x192.png",
-      },
-      {
-        action: "close",
-        title: "Fechar",
-        icon: "/icon-192x192.png",
-      },
-    ],
-  }
-
-  event.waitUntil(self.registration.showNotification("CEO SYNC", options))
-})
-
+// Lidar com cliques em notificações
 self.addEventListener("notificationclick", (event) => {
   event.notification.close()
 
-  if (event.action === "explore") {
-    event.waitUntil(clients.openWindow("/"))
+  // Abrir ou focar na janela do CEO SYNC
+  event.waitUntil(
+    clients.matchAll({ type: "window" }).then((clientList) => {
+      // Se já há uma janela aberta, focar nela
+      for (const client of clientList) {
+        if (client.url.includes("localhost") || client.url.includes("ceo-sync")) {
+          return client.focus()
+        }
+      }
+
+      // Senão, abrir nova janela
+      return clients.openWindow("/")
+    }),
+  )
+})
+
+// Lidar com notificações push (para futuras implementações)
+self.addEventListener("push", (event) => {
+  if (event.data) {
+    const data = event.data.json()
+
+    const options = {
+      body: data.body,
+      icon: "/favicon.ico",
+      badge: "/favicon.ico",
+      tag: data.tag || "ceo-sync",
+      requireInteraction: data.requireInteraction || false,
+      data: data.data || {},
+    }
+
+    event.waitUntil(self.registration.showNotification(data.title, options))
   }
 })
