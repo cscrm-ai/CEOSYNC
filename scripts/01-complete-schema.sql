@@ -262,9 +262,9 @@ CREATE TABLE messages (
     
     -- Remetente e destinatário
     sender_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    recipient_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    group_id UUID REFERENCES groups(id) ON DELETE CASCADE,
-    meeting_id UUID REFERENCES meetings(id) ON DELETE CASCADE,
+    recipient_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    group_id UUID REFERENCES groups(id) ON DELETE SET NULL,
+    meeting_id UUID REFERENCES meetings(id) ON DELETE SET NULL,
     
     -- Anexos e mídia
     attachments JSONB DEFAULT '[]'::jsonb,
@@ -407,7 +407,9 @@ CREATE TABLE notification_campaigns (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(255) NOT NULL,
     description TEXT,
-    template_id UUID NOT NULL REFERENCES notification_templates(id) ON DELETE CASCADE,
+    template_id UUID REFERENCES notification_templates(id) ON DELETE CASCADE,
+    custom_title TEXT,
+    custom_message TEXT,
     
     -- Configurações da campanha
     target_users JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -445,9 +447,12 @@ CREATE TABLE approval_rules (
     approvers JSONB NOT NULL DEFAULT '[]'::jsonb,
     
     -- Configurações
-    requires_all_approvers BOOLEAN DEFAULT false,
-    auto_approve_threshold INTEGER,
-    escalation_time_hours INTEGER DEFAULT 24,
+    settings JSONB NOT NULL DEFAULT '{
+        "allowSelfApproval": false,
+        "requireSequentialApproval": false,
+        "autoApproveAfterHours": null,
+        "escalationEnabled": false
+    }'::jsonb,
     
     -- Status
     is_active BOOLEAN DEFAULT true,
@@ -464,29 +469,31 @@ CREATE TABLE approval_rules (
 
 CREATE TABLE approval_workflows (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    title VARCHAR(500) NOT NULL,
-    description TEXT,
-    type VARCHAR(100) NOT NULL,
-    
-    -- Dados do item que precisa aprovação
-    item_data JSONB NOT NULL DEFAULT '{}'::jsonb,
-    
-    -- Solicitante
-    requested_by UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    
-    -- Aprovadores
-    approvers JSONB NOT NULL DEFAULT '[]'::jsonb,
+    campaign_id UUID NOT NULL REFERENCES notification_campaigns(id) ON DELETE CASCADE,
+    rule_id UUID REFERENCES approval_rules(id) ON DELETE SET NULL,
+    status approval_status NOT NULL DEFAULT 'pending',
+
+    -- Progresso
+    current_step INT NOT NULL DEFAULT 1,
+    total_steps INT NOT NULL,
+    approvers JSONB,
     
     -- Status e decisão
-    status workflow_status DEFAULT 'pending',
     final_decision JSONB,
     
     -- Prazos
     due_date TIMESTAMPTZ,
     escalated_at TIMESTAMPTZ,
     
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    -- Configurações específicas do workflow
+    settings JSONB DEFAULT '{\n        "requireAllApprovers": false,\n        "allowParallelApproval": true,\n        "autoApproveAfterHours": null,\n        "escalationRules": []\n    }'::jsonb,
+    
+    -- Metadados
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    
+    -- Constraints
+    CONSTRAINT valid_current_step CHECK (current_step >= 1 AND current_step <= total_steps)
 );
 
 -- =====================================================
@@ -591,3 +598,21 @@ INSERT INTO users (name, email, position, level, preferences) VALUES
 -- =====================================================
 -- FIM DO SCRIPT
 -- =====================================================
+
+-- RLS Policies
+ALTER TABLE meetings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE meeting_participants ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tasks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE notification_templates ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow authenticated users to read meetings" ON meetings FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Allow participants to read their meeting links" ON meeting_participants FOR SELECT TO authenticated USING (user_id = auth.uid());
+CREATE POLICY "Allow users to manage their own tasks" ON tasks FOR ALL TO authenticated USING (assigned_to = auth.uid() OR created_by = auth.uid());
+CREATE POLICY "Allow users to read their own notifications" ON notifications FOR SELECT TO authenticated USING (user_id = auth.uid());
+CREATE POLICY "Allow admin users to manage all notifications" ON notifications FOR ALL TO authenticated USING (get_user_level(auth.uid()) <= 2) WITH CHECK (get_user_level(auth.uid()) <= 2);
+CREATE POLICY "Allow authenticated users to read templates" ON notification_templates FOR SELECT TO authenticated USING (true);
+
+
+-- Storage Policies
+-- (Adicione aqui se necessário)

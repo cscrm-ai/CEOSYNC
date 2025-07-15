@@ -1,23 +1,34 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useApp } from "@/contexts/AppContext"
-import { Calendar, Plus, MapPin, Clock, Users, Video, User } from "lucide-react"
+import { Calendar, Plus, MapPin, Clock, Users, Video, User, Edit, Trash2 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import CreateMeetingModal from "./CreateMeetingModal"
+import type { Meeting } from "@/types"
 
 export default function Agenda() {
-  const { meetings, users, currentUser } = useApp()
-  const [selectedDate, setSelectedDate] = useState(new Date())
+  const { meetings, users, currentUser, deleteMeeting } = useApp()
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [editingMeeting, setEditingMeeting] = useState<Meeting | null>(null)
   const [viewMode, setViewMode] = useState<"month" | "week" | "day">("month")
+
+  useEffect(() => {
+    setSelectedDate(new Date())
+  }, [])
 
   // Filtrar reuniões do usuário atual
   const userMeetings = meetings.filter(
     (meeting) =>
       meeting.createdBy === currentUser?.id || meeting.participants.some((p) => p.userId === currentUser?.id),
   )
+
+  if (!selectedDate) {
+    // Pode ser um loader
+    return null
+  }
 
   // Reuniões do dia selecionado
   const selectedDateStr = selectedDate.toISOString().split("T")[0]
@@ -200,14 +211,40 @@ export default function Agenda() {
                         </div>
                       </div>
 
-                      {meeting.type === "online" && meeting.meetingLink && (
-                        <div className="mt-3">
-                          <Button size="sm" variant="outline" className="w-full">
+                      <div className="mt-3 flex space-x-2">
+                        {meeting.type === "online" && meeting.meetingLink && (
+                          <Button size="sm" variant="outline" className="flex-1">
                             <Video className="w-4 h-4 mr-2" />
                             Entrar na Reunião
                           </Button>
-                        </div>
-                      )}
+                        )}
+                        {currentUser &&
+                          (meeting.createdBy === currentUser.id || currentUser.level <= 2) && (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  setEditingMeeting(meeting)
+                                  setShowCreateModal(true)
+                                }}
+                              >
+                                <Edit className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={async () => {
+                                  if (window.confirm("Tem certeza que deseja excluir esta reunião?")) {
+                                    await deleteMeeting(meeting.id)
+                                  }
+                                }}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </>
+                          )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -217,7 +254,16 @@ export default function Agenda() {
         </div>
       </div>
 
-      {showCreateModal && <CreateMeetingModal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} />}
+      {showCreateModal && (
+        <CreateMeetingModal
+          isOpen={showCreateModal}
+          onClose={() => {
+            setShowCreateModal(false)
+            setEditingMeeting(null)
+          }}
+          meetingToEdit={editingMeeting}
+        />
+      )}
     </div>
   )
 }

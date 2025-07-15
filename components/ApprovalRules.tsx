@@ -6,94 +6,23 @@ import { Plus, Edit, Trash2, Settings, Users, AlertTriangle, CheckCircle } from 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { LEVEL_NAMES, type ApprovalRule } from "@/types"
+import ApprovalRuleModal from "./ApprovalRuleModal"
 
 export default function ApprovalRules() {
-  const { currentUser, users } = useApp()
+  const { currentUser, users, approvalRules, addApprovalRule, updateApprovalRule, deleteApprovalRule } = useApp()
   const [showCreateModal, setShowCreateModal] = useState(false)
-
-  // Mock data para regras de aprovação
-  const mockRules: ApprovalRule[] = [
-    {
-      id: "1",
-      name: "Campanhas de Alto Volume",
-      description: "Campanhas com mais de 50 destinatários requerem aprovação de diretores",
-      conditions: {
-        campaignTypes: ["broadcast", "marketing"],
-        targetUserCount: { min: 50 },
-        priority: ["alta"],
-        channels: ["email", "sms"],
-        createdByLevels: [3, 4, 5],
-      },
-      approvers: {
-        levels: [1, 2],
-        minApprovers: 1,
-        requireAll: false,
-      },
-      settings: {
-        allowSelfApproval: false,
-        requireSequentialApproval: false,
-        autoApproveAfterHours: 24,
-        escalationEnabled: true,
-      },
-      isActive: true,
-      createdBy: "1",
-      createdAt: "2024-01-01T10:00:00Z",
-    },
-    {
-      id: "2",
-      name: "Notificações Críticas",
-      description: "Todas as notificações críticas devem ser aprovadas pelo CEO",
-      conditions: {
-        campaignTypes: ["system", "emergency"],
-        priority: ["critica"],
-        channels: ["browser", "email", "sms"],
-        createdByLevels: [2, 3, 4, 5],
-      },
-      approvers: {
-        levels: [1],
-        minApprovers: 1,
-        requireAll: true,
-      },
-      settings: {
-        allowSelfApproval: false,
-        requireSequentialApproval: true,
-        autoApproveAfterHours: 2,
-        escalationEnabled: false,
-      },
-      isActive: true,
-      createdBy: "1",
-      createdAt: "2024-01-01T10:00:00Z",
-    },
-    {
-      id: "3",
-      name: "Campanhas de Marketing",
-      description: "Campanhas de marketing requerem aprovação do gerente de marketing",
-      conditions: {
-        campaignTypes: ["marketing", "promotional"],
-        targetUserCount: { min: 10 },
-        priority: ["media", "alta"],
-        channels: ["email"],
-        createdByLevels: [4, 5],
-      },
-      approvers: {
-        userIds: ["4"], // Ana Oliveira - Gerente de Vendas
-        minApprovers: 1,
-        requireAll: true,
-      },
-      settings: {
-        allowSelfApproval: true,
-        requireSequentialApproval: false,
-        autoApproveAfterHours: 48,
-        escalationEnabled: true,
-      },
-      isActive: true,
-      createdBy: "2",
-      createdAt: "2024-01-01T10:00:00Z",
-    },
-  ]
+  const [editingRule, setEditingRule] = useState<ApprovalRule | null>(null)
 
   const getUserName = (userId: string) => {
     return users.find((u) => u.id === userId)?.name || "Usuário não encontrado"
+  }
+
+  const getUniqueApproversCount = () => {
+    const approverIds = new Set<string>()
+    approvalRules.forEach((rule) => {
+      rule.approvers.userIds?.forEach((id) => approverIds.add(id))
+    })
+    return approverIds.size
   }
 
   return (
@@ -121,7 +50,7 @@ export default function ApprovalRules() {
               <div>
                 <p className="text-sm font-medium text-gray-600 dark:text-gray-300">Regras Ativas</p>
                 <p className="text-3xl font-bold text-gray-900 dark:text-white mt-2">
-                  {mockRules.filter((r) => r.isActive).length}
+                  {approvalRules.filter((r) => r.isActive).length}
                 </p>
               </div>
               <CheckCircle className="w-8 h-8 text-green-600" />
@@ -134,7 +63,7 @@ export default function ApprovalRules() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600 dark:text-gray-300">Total de Regras</p>
-                <p className="text-3xl font-bold text-gray-900 dark:text-white mt-2">{mockRules.length}</p>
+                <p className="text-3xl font-bold text-gray-900 dark:text-white mt-2">{approvalRules.length}</p>
               </div>
               <Settings className="w-8 h-8 text-blue-600" />
             </div>
@@ -147,7 +76,7 @@ export default function ApprovalRules() {
               <div>
                 <p className="text-sm font-medium text-gray-600 dark:text-gray-300">Aprovadores Únicos</p>
                 <p className="text-3xl font-bold text-gray-900 dark:text-white mt-2">
-                  {new Set(mockRules.flatMap((r) => r.approvers.userIds || [])).size}
+                  {getUniqueApproversCount()}
                 </p>
               </div>
               <Users className="w-8 h-8 text-purple-600" />
@@ -170,7 +99,7 @@ export default function ApprovalRules() {
 
       {/* Lista de Regras */}
       <div className="space-y-6">
-        {mockRules.map((rule) => (
+        {approvalRules.map((rule) => (
           <Card key={rule.id} className="hover:shadow-lg transition-shadow">
             <CardHeader>
               <div className="flex justify-between items-start">
@@ -190,10 +119,19 @@ export default function ApprovalRules() {
                   </div>
                 </div>
                 <div className="flex space-x-2">
-                  <Button variant="ghost" size="sm">
+                  <Button variant="ghost" size="sm" onClick={() => setEditingRule(rule)}>
                     <Edit className="w-4 h-4" />
                   </Button>
-                  <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-red-600 hover:text-red-700"
+                    onClick={() => {
+                      if (window.confirm(`Tem certeza que deseja excluir a regra "${rule.name}"?`)) {
+                        deleteApprovalRule(rule.id)
+                      }
+                    }}
+                  >
                     <Trash2 className="w-4 h-4" />
                   </Button>
                 </div>
@@ -227,7 +165,7 @@ export default function ApprovalRules() {
                       <div className="flex justify-between">
                         <span className="text-gray-600 dark:text-gray-400">Níveis criadores:</span>
                         <span className="text-gray-900 dark:text-white">
-                          {rule.conditions.createdByLevels.map((l) => LEVEL_NAMES[l]).join(", ")}
+                          {rule.conditions.createdByLevels.map((l) => LEVEL_NAMES[l as keyof typeof LEVEL_NAMES]).join(", ")}
                         </span>
                       </div>
                     )}
@@ -242,7 +180,7 @@ export default function ApprovalRules() {
                       <div className="flex justify-between">
                         <span className="text-gray-600 dark:text-gray-400">Níveis:</span>
                         <span className="text-gray-900 dark:text-white">
-                          {rule.approvers.levels.map((l) => LEVEL_NAMES[l]).join(", ")}
+                          {rule.approvers.levels.map((l) => LEVEL_NAMES[l as keyof typeof LEVEL_NAMES]).join(", ")}
                         </span>
                       </div>
                     )}
@@ -300,6 +238,47 @@ export default function ApprovalRules() {
           </Card>
         ))}
       </div>
+
+      {(showCreateModal || editingRule) && (
+        <ApprovalRuleModal
+          isOpen={showCreateModal || !!editingRule}
+          onClose={() => {
+            setShowCreateModal(false)
+            setEditingRule(null)
+          }}
+          ruleToEdit={editingRule}
+          onSave={async (ruleData) => {
+            if (editingRule) {
+              const updatedRule: ApprovalRule = {
+                ...editingRule,
+                ...ruleData,
+                conditions: {
+                  ...editingRule.conditions,
+                  ...ruleData.conditions,
+                },
+                approvers: {
+                  ...editingRule.approvers,
+                  ...ruleData.approvers,
+                },
+                settings: {
+                  ...editingRule.settings,
+                  ...ruleData.settings,
+                },
+              }
+              await updateApprovalRule(updatedRule)
+            } else {
+              await addApprovalRule(ruleData)
+            }
+            setShowCreateModal(false)
+            setEditingRule(null)
+          }}
+          onDelete={async (ruleId) => {
+            await deleteApprovalRule(ruleId)
+            setShowCreateModal(false)
+            setEditingRule(null)
+          }}
+        />
+      )}
     </div>
   )
 }

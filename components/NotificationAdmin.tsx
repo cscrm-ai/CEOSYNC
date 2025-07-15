@@ -23,6 +23,11 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { LEVEL_NAMES, NOTIFICATION_STATUS_COLORS, type NotificationTemplate } from "@/types"
+import NotificationTemplateModal from "@/components/NotificationTemplateModal"
+import { type NotificationCampaign } from "@/types"
+import NotificationCampaignModal from "@/components/NotificationCampaignModal"
+import React from "react"
+import { BarChart, PieChart } from "./Charts"
 
 export default function NotificationAdmin() {
   const { currentUser, users, notifications } = useApp()
@@ -350,44 +355,10 @@ function UsersTab() {
 
 // Componente da aba Templates
 function TemplatesTab() {
+  const { notificationTemplates, addNotificationTemplate, updateNotificationTemplate, deleteNotificationTemplate } =
+    useApp()
   const [showCreateModal, setShowCreateModal] = useState(false)
-
-  // Templates mockados
-  const templates: NotificationTemplate[] = [
-    {
-      id: "1",
-      name: "Lembrete de Reunião",
-      type: "reminder",
-      title: "Reunião em {time} minutos",
-      message: "A reunião '{meeting_title}' começará em {time} minutos na {location}",
-      priority: "alta",
-      channels: ["browser", "email"],
-      conditions: {
-        userLevels: [1, 2, 3],
-        departments: [],
-        timeBeforeEvent: 15,
-      },
-      isActive: true,
-      createdBy: "1",
-      createdAt: "2024-01-01T10:00:00Z",
-    },
-    {
-      id: "2",
-      name: "Nova Tarefa Atribuída",
-      type: "task",
-      title: "Nova tarefa: {task_title}",
-      message: "Você recebeu uma nova tarefa com prazo para {due_date}",
-      priority: "media",
-      channels: ["browser"],
-      conditions: {
-        userLevels: [1, 2, 3, 4, 5],
-        departments: [],
-      },
-      isActive: true,
-      createdBy: "1",
-      createdAt: "2024-01-01T10:00:00Z",
-    },
-  ]
+  const [editingTemplate, setEditingTemplate] = useState<NotificationTemplate | null>(null)
 
   return (
     <div className="space-y-6">
@@ -397,7 +368,13 @@ function TemplatesTab() {
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Templates de Notificação</h2>
           <p className="text-gray-600 dark:text-gray-300">Crie e gerencie templates reutilizáveis</p>
         </div>
-        <Button onClick={() => setShowCreateModal(true)} className="bg-blue-600 hover:bg-blue-700">
+        <Button
+          onClick={() => {
+            setEditingTemplate(null)
+            setShowCreateModal(true)
+          }}
+          className="bg-blue-600 hover:bg-blue-700"
+        >
           <Plus className="w-4 h-4 mr-2" />
           Novo Template
         </Button>
@@ -405,7 +382,7 @@ function TemplatesTab() {
 
       {/* Lista de Templates */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {templates.map((template) => (
+        {notificationTemplates.map((template) => (
           <Card key={template.id}>
             <CardHeader>
               <div className="flex justify-between items-start">
@@ -447,13 +424,29 @@ function TemplatesTab() {
                   </div>
                 </div>
                 <div className="flex justify-end space-x-2 pt-3 border-t">
-                  <Button variant="ghost" size="sm">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setEditingTemplate(template)
+                      setShowCreateModal(true)
+                    }}
+                  >
                     <Edit className="w-4 h-4" />
                   </Button>
                   <Button variant="ghost" size="sm">
                     <Eye className="w-4 h-4" />
                   </Button>
-                  <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-red-600 hover:text-red-700"
+                    onClick={() => {
+                      if (window.confirm(`Tem certeza que deseja excluir o template "${template.name}"?`)) {
+                        deleteNotificationTemplate(template.id)
+                      }
+                    }}
+                  >
                     <Trash2 className="w-4 h-4" />
                   </Button>
                 </div>
@@ -462,44 +455,277 @@ function TemplatesTab() {
           </Card>
         ))}
       </div>
+
+      {showCreateModal && (
+        <NotificationTemplateModal
+          isOpen={showCreateModal}
+          onClose={() => {
+            setShowCreateModal(false)
+            setEditingTemplate(null)
+          }}
+          template={editingTemplate || undefined}
+          onSave={(templateData) => {
+            if (editingTemplate) {
+              updateNotificationTemplate({ ...editingTemplate, ...templateData })
+            } else {
+              addNotificationTemplate(templateData as any)
+            }
+            setShowCreateModal(false)
+            setEditingTemplate(null)
+          }}
+        />
+      )}
     </div>
   )
 }
 
 // Componente da aba Campanhas
 function CampaignsTab() {
+  const {
+    notificationCampaigns,
+    notificationTemplates,
+    addNotificationCampaign,
+    updateNotificationCampaign,
+    deleteNotificationCampaign,
+    executeNotificationCampaign,
+    users,
+  } = useApp()
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [editingCampaign, setEditingCampaign] = useState<NotificationCampaign | null>(null)
+
+  const getUserName = (userId: string) => users.find((u) => u.id === userId)?.name || "N/A"
+
+  const getCampaignStatusColor = (status: NotificationCampaign["status"]) => {
+    switch (status) {
+      case "approved":
+      case "completed":
+        return "bg-green-100 text-green-800"
+      case "rejected":
+      case "cancelled":
+        return "bg-red-100 text-red-800"
+      case "pending_approval":
+      case "sending":
+        return "bg-yellow-100 text-yellow-800"
+      case "scheduled":
+        return "bg-blue-100 text-blue-800"
+      default:
+        return "bg-gray-100 text-gray-800"
+    }
+  }
+
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Campanhas de Notificação</h2>
           <p className="text-gray-600 dark:text-gray-300">Envie notificações em massa para grupos específicos</p>
         </div>
-        <Button className="bg-blue-600 hover:bg-blue-700">
+        <Button
+          onClick={() => {
+            setEditingCampaign(null)
+            setShowCreateModal(true)
+          }}
+          className="bg-blue-600 hover:bg-blue-700"
+        >
           <Plus className="w-4 h-4 mr-2" />
           Nova Campanha
         </Button>
       </div>
 
-      <Card>
-        <CardContent className="p-8 text-center">
-          <Send className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-          <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Nenhuma campanha criada</h3>
-          <p className="text-gray-500 dark:text-gray-400 mb-4">
-            Crie sua primeira campanha para enviar notificações em massa
-          </p>
-          <Button className="bg-blue-600 hover:bg-blue-700">
-            <Plus className="w-4 h-4 mr-2" />
-            Criar Primeira Campanha
-          </Button>
-        </CardContent>
-      </Card>
+      {/* Lista de Campanhas */}
+      {notificationCampaigns.length === 0 ? (
+        <Card>
+          <CardContent className="p-8 text-center">
+            <Send className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+            <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Nenhuma campanha criada</h3>
+            <p className="text-gray-500 dark:text-gray-400 mb-4">
+              Crie sua primeira campanha para enviar notificações em massa
+            </p>
+            <Button
+              onClick={() => {
+                setEditingCampaign(null)
+                setShowCreateModal(true)
+              }}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Criar Primeira Campanha
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          {notificationCampaigns.map((campaign) => (
+            <Card key={campaign.id}>
+              <CardHeader>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <CardTitle className="text-lg">{campaign.name}</CardTitle>
+                    <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">{campaign.description}</p>
+                    <div className="text-xs text-gray-500 mt-2">
+                      Criado por {getUserName(campaign.createdBy)} em{" "}
+                      {new Date(campaign.createdAt).toLocaleDateString()}
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <span
+                      className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${getCampaignStatusColor(
+                        campaign.status,
+                      )}`}
+                    >
+                      {campaign.status.replace(/_/g, " ")}
+                    </span>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-3 gap-4 text-sm">
+                  <div>
+                    <strong>Template:</strong>{" "}
+                    {notificationTemplates.find((t) => t.id === campaign.templateId)?.name || "N/A"}
+                  </div>
+                  <div>
+                    <strong>Destinatários:</strong> {campaign.targetUsers.length}
+                  </div>
+                  <div>
+                    <strong>Agendada para:</strong>{" "}
+                    {campaign.scheduledFor
+                      ? new Date(campaign.scheduledFor).toLocaleString("pt-BR")
+                      : "Envio Imediato"}
+                  </div>
+                </div>
+                <div className="flex justify-end space-x-2 pt-3 border-t mt-4">
+                  {(campaign.status === "approved" || campaign.status === "scheduled") && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            `Tem certeza que deseja executar a campanha "${campaign.name}" agora?`,
+                          )
+                        ) {
+                          executeNotificationCampaign(campaign.id)
+                        }
+                      }}
+                    >
+                      <Send className="w-4 h-4 mr-2" />
+                      Executar Agora
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setEditingCampaign(campaign)
+                      setShowCreateModal(true)
+                    }}
+                  >
+                    <Edit className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-red-600 hover:text-red-700"
+                    onClick={() => {
+                      if (window.confirm(`Tem certeza que deseja excluir a campanha "${campaign.name}"?`)) {
+                        deleteNotificationCampaign(campaign.id)
+                      }
+                    }}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {showCreateModal && (
+        <NotificationCampaignModal
+          isOpen={showCreateModal}
+          onClose={() => {
+            setShowCreateModal(false)
+            setEditingCampaign(null)
+          }}
+          campaignToEdit={editingCampaign || undefined}
+          onSave={async (campaignData) => {
+            if (editingCampaign) {
+              await updateNotificationCampaign({ ...editingCampaign, ...campaignData })
+            } else {
+              await addNotificationCampaign(campaignData)
+            }
+            setShowCreateModal(false)
+            setEditingCampaign(null)
+          }}
+        />
+      )}
     </div>
   )
 }
 
 // Componente da aba Analytics
 function AnalyticsTab() {
+  const { notifications, notificationCampaigns, users } = useApp()
+
+  const analyticsData = React.useMemo(() => {
+    const totalSent = notifications.length
+    const totalDelivered = notifications.filter(
+      (n) => n.deliveryStatus.browser === "delivered" || n.deliveryStatus.email === "delivered",
+    ).length
+    const totalRead = notifications.filter((n) => n.isRead).length
+
+    const deliveryRate = totalSent > 0 ? (totalDelivered / totalSent) * 100 : 0
+    const openRate = totalDelivered > 0 ? (totalRead / totalDelivered) * 100 : 0
+
+    const byType = notifications.reduce(
+      (acc, n) => {
+        acc[n.type] = (acc[n.type] || 0) + 1
+        return acc
+      },
+      {} as Record<string, number>,
+    )
+
+    const byChannel = notifications.reduce(
+      (acc, n) => {
+        if (n.deliveryStatus.browser === "delivered") acc["Browser"] = (acc["Browser"] || 0) + 1
+        if (n.deliveryStatus.email === "delivered") acc["Email"] = (acc["Email"] || 0) + 1
+        if (n.deliveryStatus.sms === "delivered") acc["SMS"] = (acc["SMS"] || 0) + 1
+        return acc
+      },
+      {} as Record<string, number>,
+    )
+
+    const campaignPerformance = notificationCampaigns.map((campaign) => {
+      const campaignNotifications = notifications.filter(
+        (n) => n.message.includes(campaign.name), // Simple matching, could be improved with a campaignId in notifications
+      )
+      const sent = campaign.stats.sent || campaignNotifications.length
+      const delivered = campaign.stats.delivered || campaignNotifications.filter((n) => n.isRead).length // Approximation
+      const opened = campaign.stats.opened || campaignNotifications.filter((n) => n.isRead).length
+
+      return {
+        id: campaign.id,
+        name: campaign.name,
+        status: campaign.status,
+        sent,
+        openRate: sent > 0 ? (opened / sent) * 100 : 0,
+      }
+    })
+
+    return {
+      totalSent,
+      totalRead,
+      deliveryRate,
+      openRate,
+      byType,
+      byChannel,
+      campaignPerformance,
+    }
+  }, [notifications, notificationCampaigns])
+
   return (
     <div className="space-y-6">
       <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Analytics de Notificações</h2>
@@ -508,49 +734,30 @@ function AnalyticsTab() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <Card>
           <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600 dark:text-gray-300">Taxa de Entrega</p>
-                <p className="text-3xl font-bold text-gray-900 dark:text-white mt-2">94.2%</p>
-              </div>
-              <CheckCircle className="w-8 h-8 text-green-600" />
-            </div>
+            <p className="text-sm font-medium text-gray-600 dark:text-gray-300">Taxa de Entrega</p>
+            <p className="text-3xl font-bold text-gray-900 dark:text-white mt-2">
+              {analyticsData.deliveryRate.toFixed(1)}%
+            </p>
           </CardContent>
         </Card>
-
         <Card>
           <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600 dark:text-gray-300">Taxa de Abertura</p>
-                <p className="text-3xl font-bold text-gray-900 dark:text-white mt-2">78.5%</p>
-              </div>
-              <Eye className="w-8 h-8 text-blue-600" />
-            </div>
+            <p className="text-sm font-medium text-gray-600 dark:text-gray-300">Taxa de Abertura</p>
+            <p className="text-3xl font-bold text-gray-900 dark:text-white mt-2">
+              {analyticsData.openRate.toFixed(1)}%
+            </p>
           </CardContent>
         </Card>
-
         <Card>
           <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600 dark:text-gray-300">Taxa de Clique</p>
-                <p className="text-3xl font-bold text-gray-900 dark:text-white mt-2">45.3%</p>
-              </div>
-              <Clock className="w-8 h-8 text-purple-600" />
-            </div>
+            <p className="text-sm font-medium text-gray-600 dark:text-gray-300">Total Enviadas</p>
+            <p className="text-3xl font-bold text-gray-900 dark:text-white mt-2">{analyticsData.totalSent}</p>
           </CardContent>
         </Card>
-
         <Card>
           <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600 dark:text-gray-300">Falhas</p>
-                <p className="text-3xl font-bold text-gray-900 dark:text-white mt-2">2.1%</p>
-              </div>
-              <XCircle className="w-8 h-8 text-red-600" />
-            </div>
+            <p className="text-sm font-medium text-gray-600 dark:text-gray-300">Total Lidas</p>
+            <p className="text-3xl font-bold text-gray-900 dark:text-white mt-2">{analyticsData.totalRead}</p>
           </CardContent>
         </Card>
       </div>
@@ -562,84 +769,50 @@ function AnalyticsTab() {
             <CardTitle>Notificações por Canal</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600 dark:text-gray-300">Browser</span>
-                <div className="flex items-center space-x-2">
-                  <div className="w-32 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                    <div className="bg-blue-600 h-2 rounded-full" style={{ width: "85%" }} />
-                  </div>
-                  <span className="text-sm font-medium">85%</span>
-                </div>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600 dark:text-gray-300">Email</span>
-                <div className="flex items-center space-x-2">
-                  <div className="w-32 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                    <div className="bg-green-600 h-2 rounded-full" style={{ width: "65%" }} />
-                  </div>
-                  <span className="text-sm font-medium">65%</span>
-                </div>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600 dark:text-gray-300">SMS</span>
-                <div className="flex items-center space-x-2">
-                  <div className="w-32 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                    <div className="bg-purple-600 h-2 rounded-full" style={{ width: "25%" }} />
-                  </div>
-                  <span className="text-sm font-medium">25%</span>
-                </div>
-              </div>
-            </div>
+            <BarChart
+              data={Object.entries(analyticsData.byChannel).map(([label, value]) => ({ label, value }))}
+              color="#3B82F6"
+            />
           </CardContent>
         </Card>
-
         <Card>
           <CardHeader>
             <CardTitle>Notificações por Tipo</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600 dark:text-gray-300">Reuniões</span>
-                <div className="flex items-center space-x-2">
-                  <div className="w-32 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                    <div className="bg-blue-600 h-2 rounded-full" style={{ width: "45%" }} />
-                  </div>
-                  <span className="text-sm font-medium">45%</span>
-                </div>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600 dark:text-gray-300">Tarefas</span>
-                <div className="flex items-center space-x-2">
-                  <div className="w-32 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                    <div className="bg-green-600 h-2 rounded-full" style={{ width: "30%" }} />
-                  </div>
-                  <span className="text-sm font-medium">30%</span>
-                </div>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600 dark:text-gray-300">Sistema</span>
-                <div className="flex items-center space-x-2">
-                  <div className="w-32 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                    <div className="bg-purple-600 h-2 rounded-full" style={{ width: "15%" }} />
-                  </div>
-                  <span className="text-sm font-medium">15%</span>
-                </div>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600 dark:text-gray-300">Mensagens</span>
-                <div className="flex items-center space-x-2">
-                  <div className="w-32 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                    <div className="bg-orange-600 h-2 rounded-full" style={{ width: "10%" }} />
-                  </div>
-                  <span className="text-sm font-medium">10%</span>
-                </div>
-              </div>
-            </div>
+            <PieChart data={analyticsData.byType} />
           </CardContent>
         </Card>
       </div>
+
+      {/* Performance das Campanhas */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Performance das Campanhas</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <table className="w-full">
+            <thead>
+              <tr className="border-b">
+                <th className="text-left py-2 px-4">Campanha</th>
+                <th className="text-left py-2 px-4">Status</th>
+                <th className="text-left py-2 px-4">Enviadas</th>
+                <th className="text-left py-2 px-4">Taxa de Abertura</th>
+              </tr>
+            </thead>
+            <tbody>
+              {analyticsData.campaignPerformance.map((campaign) => (
+                <tr key={campaign.id} className="border-b">
+                  <td className="py-2 px-4">{campaign.name}</td>
+                  <td className="py-2 px-4 capitalize">{campaign.status.replace(/_/g, " ")}</td>
+                  <td className="py-2 px-4">{campaign.sent}</td>
+                  <td className="py-2 px-4">{campaign.openRate.toFixed(1)}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
     </div>
   )
 }

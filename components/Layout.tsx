@@ -24,6 +24,7 @@ import AIAssistant from "./AIAssistant"
 import NotificationStatus from "./NotificationStatus"
 import LiveNotifications from "./LiveNotifications"
 import { useRealTimeNotifications } from "@/hooks/useRealTimeNotifications"
+import { useAuth } from "@/hooks/useAuth.tsx"
 
 interface LayoutProps {
   children: React.ReactNode
@@ -32,6 +33,7 @@ interface LayoutProps {
 export default function Layout({ children }: LayoutProps) {
   const { currentUser, activeSection, setActiveSection, notifications } = useApp()
   const { theme, setTheme } = useTheme()
+  const { signOut } = useAuth()
 
   const unreadNotifications = notifications.filter((n) => !n.isRead && n.userId === currentUser?.id).length
 
@@ -50,18 +52,11 @@ export default function Layout({ children }: LayoutProps) {
 
   // Adicionar painel administrativo para CEOs e Diretores
   if (currentUser && currentUser.level <= 2) {
-    menuItems.push(
-      {
-        id: "admin-notifications",
-        label: "Admin Notificações",
-        icon: Shield,
-      },
-      {
-        id: "approval-workflow",
-        label: "Aprovações",
-        icon: GitBranch,
-      },
-    )
+    menuItems.push({
+      id: "admin-notifications",
+      label: "Admin Notificações",
+      icon: Shield,
+    })
   }
 
   if (!currentUser) {
@@ -160,7 +155,10 @@ export default function Layout({ children }: LayoutProps) {
             <Settings className="w-5 h-5 mr-3" />
             Configurações
           </button>
-          <button className="flex items-center text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors mt-2">
+          <button
+            onClick={signOut}
+            className="flex items-center text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors mt-2"
+          >
             <LogOut className="w-5 h-5 mr-3" />
             Sair
           </button>

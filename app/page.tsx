@@ -1,5 +1,5 @@
 "use client"
-import { AppProvider, useApp } from "@/contexts/AppContext"
+import { useApp } from "@/contexts/AppContext"
 import Layout from "@/components/Layout"
 import Dashboard from "@/components/Dashboard"
 import Agenda from "@/components/Agenda"
@@ -10,12 +10,29 @@ import Tasks from "@/components/Tasks"
 import Analytics from "@/components/Analytics"
 import NotificationAdmin from "@/components/NotificationAdmin"
 import ApprovalWorkflow from "@/components/ApprovalWorkflow"
-import { ThemeProvider } from "@/contexts/ThemeContext"
-import { NotificationProvider } from "@/contexts/NotificationContext"
 import ServiceWorkerRegistration from "@/components/ServiceWorkerRegistration"
+import { useAuth } from "@/hooks/useAuth.tsx"
+import { useRouter } from "next/navigation"
+import { useEffect } from "react"
 
-function AppContent() {
+export default function Home() {
   const { activeSection } = useApp()
+  const { session, loading } = useAuth()
+  const router = useRouter()
+
+  useEffect(() => {
+    if (!loading && !session) {
+      router.push("/auth")
+    }
+  }, [session, loading, router])
+
+  if (loading || !session) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div>Carregando...</div>
+      </div>
+    )
+  }
 
   const renderActiveSection = () => {
     switch (activeSection) {
@@ -47,17 +64,5 @@ function AppContent() {
       <ServiceWorkerRegistration />
       <Layout>{renderActiveSection()}</Layout>
     </>
-  )
-}
-
-export default function Home() {
-  return (
-    <ThemeProvider>
-      <AppProvider>
-        <NotificationProvider>
-          <AppContent />
-        </NotificationProvider>
-      </AppProvider>
-    </ThemeProvider>
   )
 }

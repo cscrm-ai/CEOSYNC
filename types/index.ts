@@ -83,7 +83,7 @@ export interface Message {
   receiverId?: string
   groupId?: string
   content: string
-  timestamp: string
+  createdAt: string
   isRead: boolean
   type: "text" | "file" | "image" | "voice"
   fileUrl?: string
@@ -102,6 +102,8 @@ export interface Notification {
   actionRequired?: boolean
   meetingId?: string
   taskId?: string
+  campaignId?: string
+  createdBy?: string
   priority: "baixa" | "media" | "alta"
   deliveryStatus: {
     browser: "pending" | "delivered" | "failed" | "dismissed"
@@ -134,7 +136,9 @@ export interface NotificationCampaign {
   id: string
   name: string
   description: string
-  templateId: string
+  templateId?: string
+  customTitle?: string
+  customMessage?: string
   targetUsers: string[]
   scheduledFor: string
   status: "draft" | "pending_approval" | "approved" | "rejected" | "scheduled" | "sending" | "completed" | "cancelled"

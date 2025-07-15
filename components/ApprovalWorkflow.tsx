@@ -2,67 +2,43 @@
 
 import { useState } from "react"
 import { useApp } from "@/contexts/AppContext"
-import { CheckCircle, XCircle, Clock, MessageSquare, Send, Eye, Calendar, Users } from "lucide-react"
+import {
+  CheckCircle,
+  XCircle,
+  Clock,
+  MessageSquare,
+  Send,
+  Eye,
+  Calendar,
+  Users,
+  Plus,
+  Shield,
+} from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import ApprovalModal from "./ApprovalModal"
-
-// Definindo os tipos localmente para evitar problemas de importação
-interface ApprovalWorkflow {
-  id: string
-  campaignId: string
-  status: "pending" | "approved" | "rejected" | "cancelled"
-  requestedBy: string
-  requestedAt: string
-  approvers: Array<{
-    userId: string
-    status: "pending" | "approved" | "rejected"
-    comment?: string
-    approvedAt?: string
-    order: number
-  }>
-  currentStep: number
-  totalSteps: number
-  finalDecision?: {
-    status: "approved" | "rejected"
-    decidedBy: string
-    decidedAt: string
-    comment?: string
-  }
-  settings: {
-    requireAllApprovers: boolean
-    allowParallelApproval: boolean
-    autoApproveAfterHours?: number
-  }
-}
-
-interface NotificationCampaign {
-  id: string
-  name: string
-  description: string
-  templateId: string
-  targetUsers: string[]
-  scheduledFor: string
-  status: "draft" | "pending_approval" | "approved" | "rejected" | "scheduled" | "sent" | "cancelled"
-  requiresApproval: boolean
-  approvedBy?: string
-  approvedAt?: string
-  stats: {
-    sent: number
-    delivered: number
-    opened: number
-    clicked: number
-    failed: number
-  }
-  createdBy: string
-  createdAt: string
-}
+import { isToday } from "date-fns"
+import type { ApprovalWorkflow, NotificationCampaign } from "@/types"
+import NotificationCampaignModal from "./NotificationCampaignModal"
 
 export default function ApprovalWorkflow() {
-  const { currentUser, users, notifications } = useApp()
+  const {
+    currentUser,
+    users,
+    approvalWorkflows,
+    notificationCampaigns,
+    approveWorkflow,
+    rejectWorkflow,
+    executeNotificationCampaign,
+    addNotificationCampaign,
+    updateNotificationCampaign,
+  } = useApp()
   const [activeTab, setActiveTab] = useState("overview")
   const [selectedWorkflow, setSelectedWorkflow] = useState<ApprovalWorkflow | null>(null)
   const [showApprovalModal, setShowApprovalModal] = useState(false)
+  const [showCampaignModal, setShowCampaignModal] = useState(false)
+  const [forceApprovalMode, setForceApprovalMode] = useState(false)
+  const [editingCampaign, setEditingCampaign] = useState<NotificationCampaign | null>(null)
 
   // Verificar se o usuário tem permissão de administrador
   if (!currentUser || currentUser.level > 2) {
@@ -81,109 +57,36 @@ export default function ApprovalWorkflow() {
     )
   }
 
-  // Mock data para workflows de aprovação
-  const mockWorkflows: ApprovalWorkflow[] = [
-    {
-      id: "1",
-      campaignId: "camp_1",
-      status: "pending",
-      requestedBy: "4",
-      requestedAt: "2024-01-15T10:00:00Z",
-      approvers: [
-        {
-          userId: "2",
-          status: "approved",
-          comment: "Aprovado. Boa iniciativa para engajamento.",
-          approvedAt: "2024-01-15T11:30:00Z",
-          order: 1,
-        },
-        {
-          userId: "1",
-          status: "pending",
-          order: 2,
-        },
-      ],
-      currentStep: 2,
-      totalSteps: 2,
-      settings: {
-        requireAllApprovers: true,
-        allowParallelApproval: false,
-        autoApproveAfterHours: 24,
-      },
-    },
-    {
-      id: "2",
-      campaignId: "camp_2",
-      status: "approved",
-      requestedBy: "5",
-      requestedAt: "2024-01-14T14:00:00Z",
-      approvers: [
-        {
-          userId: "2",
-          status: "approved",
-          comment: "Aprovado rapidamente.",
-          approvedAt: "2024-01-14T15:00:00Z",
-          order: 1,
-        },
-      ],
-      currentStep: 1,
-      totalSteps: 1,
-      finalDecision: {
-        status: "approved",
-        decidedBy: "2",
-        decidedAt: "2024-01-14T15:00:00Z",
-        comment: "Campanha aprovada para execução imediata.",
-      },
-      settings: {
-        requireAllApprovers: false,
-        allowParallelApproval: true,
-      },
-    },
-  ]
-
-  const mockCampaigns: NotificationCampaign[] = [
-    {
-      id: "camp_1",
-      name: "Lembrete Reunião Trimestral",
-      description: "Notificação para todos os gerentes sobre a reunião trimestral",
-      templateId: "template_1",
-      targetUsers: ["3", "4", "5"],
-      scheduledFor: "2024-01-20T09:00:00Z",
-      status: "pending_approval",
-      requiresApproval: true,
-      stats: { sent: 0, delivered: 0, opened: 0, clicked: 0, failed: 0 },
-      createdBy: "4",
-      createdAt: "2024-01-15T10:00:00Z",
-    },
-    {
-      id: "camp_2",
-      name: "Atualização Sistema CRM",
-      description: "Comunicado sobre nova versão do sistema",
-      templateId: "template_2",
-      targetUsers: ["1", "2", "3", "4", "5", "6", "7"],
-      scheduledFor: "2024-01-18T08:00:00Z",
-      status: "approved",
-      requiresApproval: true,
-      approvedBy: "2",
-      approvedAt: "2024-01-14T15:00:00Z",
-      stats: { sent: 0, delivered: 0, opened: 0, clicked: 0, failed: 0 },
-      createdBy: "5",
-      createdAt: "2024-01-14T14:00:00Z",
-    },
-  ]
+  const approvedToday = approvalWorkflows.filter(
+    (w) => w.finalDecision?.status === "approved" && isToday(new Date(w.finalDecision.decidedAt)),
+  ).length
 
   const tabs = [
-    { id: "overview", label: "Visão Geral", count: mockWorkflows.length },
-    { id: "pending", label: "Pendentes", count: mockWorkflows.filter((w) => w.status === "pending").length },
-    { id: "approved", label: "Aprovadas", count: mockWorkflows.filter((w) => w.status === "approved").length },
-    { id: "rejected", label: "Rejeitadas", count: mockWorkflows.filter((w) => w.status === "rejected").length },
+    { id: "overview", label: "Visão Geral", count: approvalWorkflows.length },
+    {
+      id: "pending",
+      label: "Pendentes",
+      count: approvalWorkflows.filter((w) => w.status === "pending").length,
+    },
+    {
+      id: "approved",
+      label: "Aprovadas",
+      count: approvalWorkflows.filter((w) => w.status === "approved").length,
+    },
+    {
+      id: "rejected",
+      label: "Rejeitadas",
+      count: approvalWorkflows.filter((w) => w.status === "rejected").length,
+    },
   ]
 
   const filteredWorkflows =
-    activeTab === "overview" ? mockWorkflows : mockWorkflows.filter((workflow) => workflow.status === activeTab)
+    activeTab === "overview"
+      ? approvalWorkflows
+      : approvalWorkflows.filter((workflow) => workflow.status === activeTab)
 
   const getWorkflowCampaign = (campaignId: string) => {
-    return mockCampaigns.find((c) => c.id === campaignId)
+    return notificationCampaigns.find((c) => c.id === campaignId)
   }
 
   const getUserName = (userId: string) => {
@@ -199,8 +102,36 @@ export default function ApprovalWorkflow() {
   return (
     <div className="p-6">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Workflow de Aprovação</h1>
-        <p className="text-gray-600 dark:text-gray-300 mt-2">Gerencie aprovações de campanhas de notificação</p>
+        <div className="flex justify-between items-center">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Workflow de Aprovação</h1>
+            <p className="text-gray-600 dark:text-gray-300 mt-2">Gerencie aprovações de campanhas de notificação</p>
+          </div>
+          <div className="flex items-center space-x-2">
+            <Button
+              onClick={() => {
+                setEditingCampaign(null)
+                setForceApprovalMode(false)
+                setShowCampaignModal(true)
+              }}
+              variant="outline"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Nova Campanha
+            </Button>
+            <Button
+              onClick={() => {
+                setEditingCampaign(null)
+                setForceApprovalMode(true)
+                setShowCampaignModal(true)
+              }}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              <Shield className="w-4 h-4 mr-2" />
+              Solicitar Aprovação
+            </Button>
+          </div>
+        </div>
       </div>
 
       {/* Estatísticas */}
@@ -211,7 +142,7 @@ export default function ApprovalWorkflow() {
               <div>
                 <p className="text-sm font-medium text-gray-600 dark:text-gray-300">Aguardando Aprovação</p>
                 <p className="text-3xl font-bold text-gray-900 dark:text-white mt-2">
-                  {mockWorkflows.filter((w) => w.status === "pending").length}
+                  {approvalWorkflows.filter((w) => w.status === "pending").length}
                 </p>
               </div>
               <Clock className="w-8 h-8 text-orange-600" />
@@ -225,7 +156,7 @@ export default function ApprovalWorkflow() {
               <div>
                 <p className="text-sm font-medium text-gray-600 dark:text-gray-300">Aprovadas Hoje</p>
                 <p className="text-3xl font-bold text-gray-900 dark:text-white mt-2">
-                  {mockWorkflows.filter((w) => w.status === "approved").length}
+                  {approvedToday}
                 </p>
               </div>
               <CheckCircle className="w-8 h-8 text-green-600" />
@@ -381,7 +312,19 @@ export default function ApprovalWorkflow() {
                       Ver Campanha
                     </Button>
                     {workflow.status === "approved" && (
-                      <Button size="sm" className="bg-green-600 hover:bg-green-700">
+                      <Button
+                        size="sm"
+                        className="bg-green-600 hover:bg-green-700"
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              `Tem certeza que deseja executar a campanha "${campaign.name}" agora? Esta ação não pode ser desfeita.`,
+                            )
+                          ) {
+                            executeNotificationCampaign(campaign.id)
+                          }
+                        }}
+                      >
                         <Send className="w-4 h-4 mr-2" />
                         Executar
                       </Button>
@@ -404,15 +347,41 @@ export default function ApprovalWorkflow() {
             setSelectedWorkflow(null)
           }}
           onApprove={(comment) => {
-            console.log("Aprovado:", comment)
+            if (currentUser) {
+              approveWorkflow(selectedWorkflow.id, currentUser.id, comment)
+            }
             setShowApprovalModal(false)
             setSelectedWorkflow(null)
           }}
           onReject={(comment) => {
-            console.log("Rejeitado:", comment)
+            if (currentUser) {
+              rejectWorkflow(selectedWorkflow.id, currentUser.id, comment)
+            }
             setShowApprovalModal(false)
             setSelectedWorkflow(null)
           }}
+        />
+      )}
+
+      {showCampaignModal && (
+        <NotificationCampaignModal
+          isOpen={showCampaignModal}
+          onClose={() => {
+            setShowCampaignModal(false)
+            setEditingCampaign(null)
+          }}
+          campaignToEdit={editingCampaign || undefined}
+          onSave={async (campaignData) => {
+            if (editingCampaign) {
+              await updateNotificationCampaign({ ...editingCampaign, ...campaignData })
+            } else {
+              await addNotificationCampaign(campaignData)
+            }
+            setShowCampaignModal(false)
+            setEditingCampaign(null)
+          }}
+          forceApproval={forceApprovalMode}
+          createTitle={forceApprovalMode ? "Solicitar Aprovação de Campanha" : "Nova Campanha de Notificação"}
         />
       )}
     </div>

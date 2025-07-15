@@ -41,7 +41,7 @@ export default function Chat() {
       .map(([userId, msgs]) => {
         const user = users.find((u) => u.id === userId)
         const lastMessage = msgs.sort(
-          (a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+          (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
         )[0]
         const unreadCount = msgs.filter((m: any) => m.receiverId === currentUser?.id && !m.isRead).length
 
@@ -52,7 +52,7 @@ export default function Chat() {
           unreadCount,
         }
       })
-      .sort((a, b) => new Date(b.lastMessage.timestamp).getTime() - new Date(a.lastMessage.timestamp).getTime())
+      .sort((a, b) => new Date(b.lastMessage.createdAt).getTime() - new Date(a.lastMessage.createdAt).getTime())
   }
 
   const conversations = getUserConversations()
@@ -66,19 +66,17 @@ export default function Chat() {
             (m.senderId === currentUser?.id && m.receiverId === selectedUser) ||
             (m.senderId === selectedUser && m.receiverId === currentUser?.id),
         )
-        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
     : []
 
   const sendMessage = () => {
     if (!messageText.trim() || !selectedUser || !currentUser) return
 
     const newMessage = {
-      id: Date.now().toString(),
       senderId: currentUser.id,
       receiverId: selectedUser,
       content: messageText,
-      timestamp: new Date().toISOString(),
-      isRead: false,
+      type: "text" as const,
     }
 
     addMessage(newMessage)
@@ -273,7 +271,7 @@ export default function Chat() {
                                 message.senderId === currentUser?.id ? "text-blue-100" : "text-gray-500"
                               }`}
                             >
-                              {new Date(message.timestamp).toLocaleTimeString("pt-BR", {
+                              {new Date(message.createdAt).toLocaleTimeString("pt-BR", {
                                 hour: "2-digit",
                                 minute: "2-digit",
                               })}

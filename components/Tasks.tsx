@@ -1,9 +1,9 @@
 "use client"
 
 import type React from "react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useApp } from "@/contexts/AppContext"
-import { CheckSquare, Plus, Calendar, User, Tag, Clock, Search } from "lucide-react"
+import { CheckSquare, Plus, Calendar, User, Tag, Clock, Search, Edit, Trash2 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { PRIORITY_COLORS, TASK_STATUS_COLORS, type Task } from "@/types"
@@ -14,6 +14,11 @@ export default function Tasks() {
   const [selectedStatus, setSelectedStatus] = useState<string>("all")
   const [selectedPriority, setSelectedPriority] = useState<string>("all")
   const [searchTerm, setSearchTerm] = useState("")
+  const [currentDate, setCurrentDate] = useState<Date | null>(null)
+
+  useEffect(() => {
+    setCurrentDate(new Date())
+  }, [])
 
   // Filtrar tarefas
   const filteredTasks = tasks.filter((task) => {
@@ -42,20 +47,24 @@ export default function Tasks() {
   }
 
   const getTaskStats = () => {
-    const userTasks = tasks.filter((task) => task.assignedTo === currentUser?.id || task.createdBy === currentUser?.id)
+    if (!currentDate)
+      return { total: 0, pending: 0, inProgress: 0, completed: 0, overdue: 0 }
+    const userTasks = tasks.filter(
+      (task) => task.assignedTo === currentUser?.id || task.createdBy === currentUser?.id,
+    )
 
     return {
       total: userTasks.length,
       pending: userTasks.filter((t) => t.status === "pendente").length,
       inProgress: userTasks.filter((t) => t.status === "em_progresso").length,
       completed: userTasks.filter((t) => t.status === "concluida").length,
-      overdue: userTasks.filter((t) => new Date(t.dueDate) < new Date() && t.status !== "concluida").length,
+      overdue: userTasks.filter((t) => new Date(t.dueDate) < currentDate && t.status !== "concluida").length,
     }
   }
 
   const stats = getTaskStats()
 
-  const handleStatusChange = (taskId: string, newStatus: Task["status"]) => {
+  const handleStatusChange = async (taskId: string, newStatus: Task["status"]) => {
     const task = tasks.find((t) => t.id === taskId)
     if (task) {
       const updatedTask = {
@@ -63,7 +72,7 @@ export default function Tasks() {
         status: newStatus,
         completedAt: newStatus === "concluida" ? new Date().toISOString() : undefined,
       }
-      updateTask(updatedTask)
+      await updateTask(updatedTask)
     }
   }
 
@@ -196,7 +205,7 @@ export default function Tasks() {
       {/* Lista de Tarefas */}
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
         {filteredTasks.map((task) => {
-          const isOverdue = new Date(task.dueDate) < new Date() && task.status !== "concluida"
+          const isOverdue = currentDate && new Date(task.dueDate) < currentDate && task.status !== "concluida"
           return (
             <Card key={task.id} className={`${isOverdue ? "border-red-300 dark:border-red-600" : ""}`}>
               <CardHeader className="pb-3">
@@ -270,6 +279,23 @@ export default function Tasks() {
                     )}
                   </div>
                 )}
+                <div className="absolute top-2 right-2 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Button size="icon" variant="ghost" className="h-7 w-7">
+                    <Edit className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-7 w-7 text-red-500 hover:text-red-600"
+                    onClick={async () => {
+                      if (window.confirm("Tem certeza que deseja excluir esta tarefa?")) {
+                        await deleteTask(task.id)
+                      }
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           )
@@ -314,12 +340,11 @@ function CreateTaskModal({ isOpen, onClose }: CreateTaskModalProps) {
 
   if (!isOpen) return null
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!currentUser) return
 
-    const newTask: Task = {
-      id: Date.now().toString(),
+    const newTaskData: Omit<Task, "id" | "createdAt" | "completedAt"> = {
       title: formData.title,
       description: formData.description,
       assignedTo: formData.assignedTo,
@@ -329,13 +354,12 @@ function CreateTaskModal({ isOpen, onClose }: CreateTaskModalProps) {
       priority: formData.priority,
       status: "pendente",
       tags: formData.tags,
-      createdAt: new Date().toISOString(),
     }
 
-    addTask(newTask)
+    const createdTask = await addTask(newTaskData)
 
     // Criar notificação para o responsável
-    if (formData.assignedTo !== currentUser.id) {
+    if (createdTask && formData.assignedTo !== currentUser.id) {
       addNotification({
         id: Date.now().toString() + "_task",
         type: "task",
@@ -344,8 +368,13 @@ function CreateTaskModal({ isOpen, onClose }: CreateTaskModalProps) {
         userId: formData.assignedTo,
         isRead: false,
         createdAt: new Date().toISOString(),
-        taskId: newTask.id,
+        taskId: createdTask.id,
         priority: formData.priority === "critica" ? "alta" : "media",
+        deliveryStatus: {
+          browser: "pending",
+          email: "pending",
+          sms: "pending",
+        },
       })
     }
 

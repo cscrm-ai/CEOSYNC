@@ -3,92 +3,112 @@
 import type React from "react"
 import { useState } from "react"
 import { useApp } from "@/contexts/AppContext"
-import { X, Calendar, Clock, MapPin, Users, Video } from "lucide-react"
+import { X, Calendar, Clock, MapPin, Users, Video, AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { Meeting } from "@/types"
 
 interface CreateMeetingModalProps {
   isOpen: boolean
   onClose: () => void
+  meetingToEdit?: Meeting | null
 }
 
-export default function CreateMeetingModal({ isOpen, onClose }: CreateMeetingModalProps) {
-  const { currentUser, users, addMeeting, addNotification } = useApp()
+export default function CreateMeetingModal({ isOpen, onClose, meetingToEdit }: CreateMeetingModalProps) {
+  const { currentUser, users, addMeeting, updateMeeting, addNotification } = useApp()
   const [formData, setFormData] = useState({
-    title: "",
-    date: "",
-    startTime: "",
-    endTime: "",
-    location: "",
-    type: "presencial" as "presencial" | "online",
-    participants: [] as { userId: string; status: "convocado" | "convidado" }[],
+    title: meetingToEdit?.title || "",
+    date: meetingToEdit?.date || "",
+    startTime: meetingToEdit?.startTime || "",
+    endTime: meetingToEdit?.endTime || "",
+    location: meetingToEdit?.location || "",
+    type: meetingToEdit?.type || ("presencial" as "presencial" | "online"),
+    participants: meetingToEdit?.participants || ([] as { userId: string; status: "convocado" | "convidado" }[]),
   })
+  const [conflicts, setConflicts] = useState<{ userId: string; conflictingMeeting: Meeting }[]>([])
+  const { findMeetingConflicts, users: allUsers } = useApp()
 
-  const [conflicts, setConflicts] = useState<string[]>([])
+  const isEditing = !!meetingToEdit
 
   if (!isOpen) return null
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
     if (!currentUser) return
 
-    // Verificar conflitos (simplificado)
-    const hasConflicts = checkForConflicts()
+    const participantIds = formData.participants.map((p) => p.userId)
+    const foundConflicts = await findMeetingConflicts(
+      formData.date,
+      formData.startTime,
+      formData.endTime,
+      participantIds,
+      isEditing ? meetingToEdit.id : undefined,
+    )
 
-    if (hasConflicts && currentUser.level !== 1) {
-      alert("Há conflitos de agenda. Como você não é o CEO, precisa resolver os conflitos primeiro.")
+    setConflicts(foundConflicts)
+
+    const hasSuperiorConflict = foundConflicts.some((conflict) => {
+      const conflictingUser = allUsers.find((u) => u.id === conflict.userId)
+      return conflictingUser && conflictingUser.level <= currentUser.level
+    })
+
+    if (foundConflicts.length > 0 && (hasSuperiorConflict || currentUser.level > 2)) {
+      alert(
+        "Existem conflitos de agenda com superiores ou você não tem permissão para forçar o agendamento. Por favor, ajuste o horário ou os participantes.",
+      )
       return
     }
 
-    const newMeeting: Meeting = {
-      id: Date.now().toString(),
-      title: formData.title,
-      date: formData.date,
-      startTime: formData.startTime,
-      endTime: formData.endTime,
-      location: formData.location,
-      type: formData.type,
-      meetingLink:
-        formData.type === "online" ? `https://meet.google.com/${Math.random().toString(36).substr(2, 9)}` : undefined,
-      createdBy: currentUser.id,
-      participants: formData.participants.map((p) => ({
-        ...p,
-        response: "pendente" as const,
-      })),
+    if (isEditing) {
+      const updatedMeeting: Meeting = {
+        ...meetingToEdit,
+        ...formData,
+        participants: formData.participants.map((p) => ({
+          userId: p.userId,
+          status: p.status,
+          response:
+            (meetingToEdit.participants.find((oldP) => oldP.userId === p.userId)?.response as
+              | "aceito"
+              | "recusado"
+              | "pendente") || "pendente",
+        })),
+      }
+      await updateMeeting(updatedMeeting)
+    } else {
+      const newMeetingData: Omit<Meeting, "id"> = {
+        title: formData.title,
+        date: formData.date,
+        startTime: formData.startTime,
+        endTime: formData.endTime,
+        location: formData.location,
+        type: formData.type,
+        meetingLink:
+          formData.type === "online" ? `https://meet.google.com/${Math.random().toString(36).substr(2, 9)}` : undefined,
+        createdBy: currentUser.id,
+        participants: formData.participants.map((p) => ({
+          ...p,
+          response: "pendente" as const,
+        })),
+        priority: "media" as const,
+        tags: [],
+      }
+
+      await addMeeting(newMeetingData, foundConflicts)
     }
 
-    addMeeting(newMeeting)
-
-    // Criar notificações para os participantes
-    formData.participants.forEach((participant) => {
-      addNotification({
-        id: Date.now().toString() + participant.userId,
-        type: "meeting",
-        title: "Nova Reunião Agendada",
-        message: `Você foi ${participant.status} para: ${formData.title}`,
-        userId: participant.userId,
-        isRead: false,
-        createdAt: new Date().toISOString(),
-        meetingId: newMeeting.id,
-      })
-    })
-
     onClose()
-    setFormData({
-      title: "",
-      date: "",
-      startTime: "",
-      endTime: "",
-      location: "",
-      type: "presencial",
-      participants: [],
-    })
   }
 
-  const checkForConflicts = () => {
-    // Lógica simplificada de verificação de conflitos
-    return false
+  const getUserName = (userId: string) => {
+    return allUsers.find((u) => u.id === userId)?.name || "Usuário"
+  }
+
+  const handleFormDataChange = (field: keyof typeof formData, value: any) => {
+    setFormData((prev) => ({ ...prev, [field]: value }))
+    // Limpa os conflitos ao mudar dados relevantes
+    if (["date", "startTime", "endTime", "participants"].includes(field)) {
+      setConflicts([])
+    }
   }
 
   const toggleParticipant = (userId: string, status: "convocado" | "convidado") => {
@@ -127,7 +147,7 @@ export default function CreateMeetingModal({ isOpen, onClose }: CreateMeetingMod
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold text-gray-900">Nova Reunião</h2>
+          <h2 className="text-2xl font-bold text-gray-900">{isEditing ? "Editar Reunião" : "Nova Reunião"}</h2>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
             <X className="w-6 h-6" />
           </button>
@@ -141,7 +161,7 @@ export default function CreateMeetingModal({ isOpen, onClose }: CreateMeetingMod
               type="text"
               required
               value={formData.title}
-              onChange={(e) => setFormData((prev) => ({ ...prev, title: e.target.value }))}
+              onChange={(e) => handleFormDataChange("title", e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Ex: Reunião de Diretoria"
             />
@@ -158,7 +178,7 @@ export default function CreateMeetingModal({ isOpen, onClose }: CreateMeetingMod
                 type="date"
                 required
                 value={formData.date}
-                onChange={(e) => setFormData((prev) => ({ ...prev, date: e.target.value }))}
+                onChange={(e) => handleFormDataChange("date", e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -171,7 +191,7 @@ export default function CreateMeetingModal({ isOpen, onClose }: CreateMeetingMod
                 type="time"
                 required
                 value={formData.startTime}
-                onChange={(e) => setFormData((prev) => ({ ...prev, startTime: e.target.value }))}
+                onChange={(e) => handleFormDataChange("startTime", e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -184,7 +204,7 @@ export default function CreateMeetingModal({ isOpen, onClose }: CreateMeetingMod
                 type="time"
                 required
                 value={formData.endTime}
-                onChange={(e) => setFormData((prev) => ({ ...prev, endTime: e.target.value }))}
+                onChange={(e) => handleFormDataChange("endTime", e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -200,7 +220,7 @@ export default function CreateMeetingModal({ isOpen, onClose }: CreateMeetingMod
                   value="presencial"
                   checked={formData.type === "presencial"}
                   onChange={(e) =>
-                    setFormData((prev) => ({ ...prev, type: e.target.value as "presencial" | "online" }))
+                    handleFormDataChange("type", e.target.value as "presencial" | "online")
                   }
                   className="mr-2"
                 />
@@ -213,7 +233,7 @@ export default function CreateMeetingModal({ isOpen, onClose }: CreateMeetingMod
                   value="online"
                   checked={formData.type === "online"}
                   onChange={(e) =>
-                    setFormData((prev) => ({ ...prev, type: e.target.value as "presencial" | "online" }))
+                    handleFormDataChange("type", e.target.value as "presencial" | "online")
                   }
                   className="mr-2"
                 />
@@ -242,7 +262,7 @@ export default function CreateMeetingModal({ isOpen, onClose }: CreateMeetingMod
               type="text"
               required
               value={formData.location}
-              onChange={(e) => setFormData((prev) => ({ ...prev, location: e.target.value }))}
+              onChange={(e) => handleFormDataChange("location", e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder={
                 formData.type === "presencial"
@@ -251,6 +271,38 @@ export default function CreateMeetingModal({ isOpen, onClose }: CreateMeetingMod
               }
             />
           </div>
+
+          {/* Alerta de Conflitos */}
+          {conflicts.length > 0 && (
+            <div className="p-4 bg-yellow-50 border-l-4 border-yellow-400 rounded-r-lg">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <AlertTriangle className="h-5 w-5 text-yellow-500" />
+                </div>
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium text-yellow-800">
+                    Conflito de Agenda Detectado
+                  </h3>
+                  <div className="mt-2 text-sm text-yellow-700">
+                    <ul className="list-disc pl-5 space-y-1">
+                      {conflicts.map((conflict) => (
+                        <li key={conflict.userId}>
+                          <strong>{getUserName(conflict.userId)}</strong> já tem a reunião "
+                          {conflict.conflictingMeeting.title}" neste horário.
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  {currentUser && currentUser.level <= 2 && (
+                    <p className="mt-3 text-sm text-yellow-700">
+                      Como você é um superior, pode forçar o agendamento. Os participantes com conflito serão
+                      notificados.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Participantes */}
           <div>
@@ -313,7 +365,7 @@ export default function CreateMeetingModal({ isOpen, onClose }: CreateMeetingMod
               Cancelar
             </Button>
             <Button type="submit" className="bg-blue-600 hover:bg-blue-700">
-              Criar Reunião
+              {isEditing ? "Salvar Alterações" : "Criar Reunião"}
             </Button>
           </div>
         </form>
