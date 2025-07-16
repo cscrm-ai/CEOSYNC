@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { supabase } from "@/lib/supabaseClient"
 import type { Session, User } from "@supabase/supabase-js"
 
+
 interface SignUpMetadata {
   name: string
   position: string
